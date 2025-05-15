@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import logging
+import sys
 from pathlib import Path
 import yaml
 import json
-import logging
 from typing import Optional, List, Dict, Tuple
 
 from models.config import LotteryConfig
@@ -13,15 +14,15 @@ from core.analyzer import LotteryAnalyzer
 from core.generator import NumberSetGenerator
 from core.validator import LotteryValidator
 
-def setup_logging(verbose: bool = False):
-    """Configure logging based on verbosity"""
+def setup_logging(verbose=False):
+    """Configure logging system"""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('lottery_optimizer.log'),
-            logging.StreamHandler()
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler('debug.log')
         ]
     )
 
