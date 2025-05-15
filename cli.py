@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import argparse
 import logging
+import argparse
 import sys
 from pathlib import Path
 import yaml
