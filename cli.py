@@ -147,6 +147,7 @@ def main():
 
     except Exception as e:
         logging.critical(f"Fatal error: {str(e)}", exc_info=args.verbose)
+        print(f"DEBUG: globals() contains 'logging': {'logging' in globals()}")  # Debug line
         raise SystemExit(1) from e
 
 if __name__ == "__main__":
