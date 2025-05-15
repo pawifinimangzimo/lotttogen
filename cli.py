@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import logging
-from logging import INFO, DEBUG, ERROR, CRITICAL
 import sys
 from pathlib import Path
 import yaml
 import json
 from typing import Optional, List, Dict, Tuple
+from collections import Counter  # Needed for the Counter output
 
 from models.config import LotteryConfig
 from models.results import ValidationResult
@@ -23,10 +23,10 @@ def setup_logging(verbose=False):
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler('debug.log')
+            logging.FileHandler('lottery_optimizer.log')
         ]
     )
-
+    
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
