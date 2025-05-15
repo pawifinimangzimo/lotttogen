@@ -7,8 +7,9 @@ from pathlib import Path
 import yaml
 from typing import List, Tuple, Any, Dict, Optional
 from collections import Counter
+from datetime import datetime
 
-# Emergency logging system
+# Configure emergency logging first
 CRASH_LOG = Path('lottery_crash.log')
 SUCCESS_LOG = Path('lottery_optimizer.log')
 
@@ -16,7 +17,7 @@ def emergency_log(error: str):
     """Atomic error logging that cannot fail"""
     try:
         with open(CRASH_LOG, 'a') as f:
-            f.write(f"{os.getpid()}: {error}\n")
+            f.write(f"{datetime.now()}: {error}\n")
     except:
         os.write(2, f"CRASH LOG FAILED: {error}\n".encode())
 
@@ -28,24 +29,12 @@ def safe_print(*args, **kwargs):
     except:
         emergency_log("Print failed: " + " ".join(str(a) for a in args))
 
-def convert_for_json(obj: Any) -> Any:
-    """Recursively convert objects to JSON-serializable types"""
-    if isinstance(obj, (str, int, float, bool, type(None))):
-        return obj
-    elif isinstance(obj, dict):
-        return {k: convert_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
-        return [convert_for_json(item) for item in obj]
-    elif hasattr(obj, '__dict__'):
-        return convert_for_json(obj.__dict__)
-    else:
-        return str(obj)
-
 # Safe imports with fallback
 try:
     import logging
+    import numpy as np
     from models.config import LotteryConfig
-    from models.results import ValidationResult
+    from models.results import ValidationResult, AnalysisResult
     from core.data_handler import DataHandler
     from core.analyzer import LotteryAnalyzer
     from core.generator import NumberSetGenerator
@@ -63,19 +52,16 @@ def setup_logging(verbose=False):
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
-        file_handler = logging.FileHandler(SUCCESS_LOG)
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
+        handlers = [
+            logging.FileHandler(SUCCESS_LOG),
+            logging.StreamHandler(sys.stdout)
+        ]
         
-        stream_handler = logging.StreamHandler(sys.stdout)
-        stream_handler.setLevel(level)
-        stream_handler.setFormatter(formatter)
-        
-        logger = logging.getLogger()
-        logger.setLevel(level)
-        logger.addHandler(file_handler)
-        logger.addHandler(stream_handler)
-        
+        logging.basicConfig(
+            level=level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=handlers
+        )
     except Exception as e:
         emergency_log(f"Logging setup failed: {str(e)}")
         safe_print("WARNING: Logging partially failed - see", CRASH_LOG)
@@ -83,155 +69,181 @@ def setup_logging(verbose=False):
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
-        description='Adaptive Lottery Number Optimizer',
+        description='Advanced Lottery Number Analyzer and Generator',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument('--config', default='config.yaml',
                       help='Path to configuration file')
     parser.add_argument('--verbose', action='store_true',
                       help='Enable verbose debugging output')
-    parser.add_argument('--mode', choices=['historical', 'new_draw', 'both', 'none'],
-                      default='none', help='Validation mode to run')
-    parser.add_argument('--validate-saved', metavar='PATH',
-                      help='Validate saved number sets from CSV file')
-    parser.add_argument('--analyze-latest', action='store_true',
-                      help='Show detailed analysis of latest draw')
-    parser.add_argument('--stats', action='store_true',
-                      help='Show advanced statistics')
-    parser.add_argument('--match-threshold', type=int,
-                      help='Minimum matches to show in validation')
-    parser.add_argument('--show-top', type=int,
-                      help='Number of top results to display')
+    parser.add_argument('--mode', choices=['analyze', 'generate', 'validate', 'all'],
+                      default='all', help='Operation mode')
+    parser.add_argument('--draws', type=int,
+                      help='Number of draws to analyze')
+    parser.add_argument('--sets', type=int, default=10,
+                      help='Number of number sets to generate')
+    parser.add_argument('--strategy', choices=['hot', 'cold', 'balanced', 'random'],
+                      default='balanced', help='Number generation strategy')
+    parser.add_argument('--output', help='Output directory for results')
     return parser.parse_args()
 
-def load_config(config_path: str) -> LotteryConfig:
-    """Load and validate configuration"""
+def convert_for_json(obj):
+    """Convert objects to JSON-serializable formats"""
+    if isinstance(obj, (np.int_, np.intc, np.intp, np.int8,
+                       np.int16, np.int32, np.int64, np.uint8,
+                       np.uint16, np.uint32, np.uint64)):
+        return int(obj)
+    elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, (np.ndarray,)):
+        return obj.tolist()
+    elif hasattr(obj, '__dict__'):
+        return {k: convert_for_json(v) for k, v in obj.__dict__.items()}
+    return obj
+
+def save_report(data: Dict, file_path: Path) -> bool:
+    """Save analysis report to JSON file"""
     try:
-        with open(config_path) as f:
-            config_data = yaml.safe_load(f)
-        return LotteryConfig(**config_data)
+        with open(file_path, 'w') as f:
+            json.dump(convert_for_json(data), f, indent=2)
+        return True
     except Exception as e:
-        emergency_log(f"Config load failed: {str(e)}")
-        safe_print(f"ERROR: Failed to load config: {str(e)}")
+        emergency_log(f"Failed to save report: {str(e)}")
+        return False
+
+def analyze_data(analyzer: LotteryAnalyzer, num_draws: Optional[int]) -> AnalysisResult:
+    """Perform comprehensive lottery data analysis"""
+    try:
+        logging.info("Starting data analysis...")
+        result = AnalysisResult()
+        
+        # Basic statistics
+        result.basic_stats = analyzer.get_basic_statistics()
+        
+        # Number frequencies
+        result.number_frequencies = analyzer.calculate_frequencies()
+        
+        # Hot/Cold numbers
+        result.hot_numbers = analyzer.get_hot_numbers(num_draws or 50)
+        result.cold_numbers = analyzer.get_cold_numbers(num_draws or 100)
+        
+        # Pattern analysis
+        result.common_patterns = analyzer.analyze_patterns()
+        
+        logging.info("Analysis completed successfully")
+        return result
+        
+    except Exception as e:
+        emergency_log(f"Analysis failed: {str(e)}")
         raise
 
-def print_validation_results(results: ValidationResult) -> None:
-    """Display validation results"""
+def generate_numbers(generator: NumberSetGenerator, num_sets: int, strategy: str) -> List[Tuple[List[int], str]]:
+    """Generate lottery number sets"""
     try:
-        print("\nVALIDATION RESULTS:")
-        print(f"Tested against {results.draws_tested} historical draws")
-        print("Match distribution:")
-        for i in range(7):
-            print(f"{i} matches: {results.match_counts.get(i, 0)} "
-                  f"({results.match_percentages.get(f'{i}_matches', '0%')})")
-        
-        if results.best_per_draw:
-            print(f"\nBest match per draw: {Counter(results.best_per_draw)}")
+        logging.info(f"Generating {num_sets} number sets using {strategy} strategy")
+        strategies = {
+            'hot': generator.generate_hot_sets,
+            'cold': generator.generate_cold_sets,
+            'balanced': generator.generate_balanced_sets,
+            'random': generator.generate_random_sets
+        }
+        return strategies[strategy](num_sets)
     except Exception as e:
-        emergency_log(f"Results print failed: {str(e)}")
+        emergency_log(f"Generation failed: {str(e)}")
+        raise
 
-def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
-    """Save generated number sets to CSV"""
+def validate_numbers(validator: LotteryValidator, number_sets: List[Tuple[List[int], str]]]) -> ValidationResult:
+    """Validate generated numbers against historical data"""
     try:
-        output_path = Path(output_dir) / 'suggestions.csv'
-        with open(output_path, 'w') as f:
-            f.write("numbers,strategy\n")
-            for nums, strategy in sets:
-                f.write(f"{'-'.join(map(str, nums))},{strategy}\n")
-        logging.info(f"Saved results to {output_path}")
-        return True
+        logging.info("Validating number sets...")
+        return validator.validate_against_historical(number_sets)
     except Exception as e:
-        emergency_log(f"Save failed: {str(e)}")
-        safe_print(f"ERROR: Failed to save results: {str(e)}")
-        return False
+        emergency_log(f"Validation failed: {str(e)}")
+        raise
 
-def get_report_path(config) -> Path:
-    """Get validation report path with fallback defaults"""
+def save_results(results: Dict, output_dir: Path):
+    """Save all results to appropriate files"""
     try:
-        # Try to get from config
-        if hasattr(config.validation, 'report_path'):
-            return Path(config.validation.report_path)
-        # Fallback to results directory
-        if hasattr(config.data, 'results_dir'):
-            return Path(config.data.results_dir)
-    except Exception:
-        pass
-    # Ultimate fallback
-    return Path.cwd()
-
-def save_validation_report(data: Dict, config) -> bool:
-    """Safely save validation report with proper path handling"""
-    try:
-        report_dir = get_report_path(config)
-        report_dir.mkdir(parents=True, exist_ok=True)
-        report_path = report_dir / 'validation_report.json'
+        output_dir.mkdir(parents=True, exist_ok=True)
         
-        with open(report_path, 'w') as f:
-            json.dump(convert_for_json(data), f, indent=2)
+        # Save number sets
+        if 'generated_sets' in results:
+            with open(output_dir / 'generated_sets.csv', 'w') as f:
+                f.write("numbers,strategy\n")
+                for nums, strategy in results['generated_sets']:
+                    f.write(f"{','.join(map(str, nums))},{strategy}\n")
         
-        logging.info(f"Saved validation report to {report_path}")
-        return True
+        # Save analysis report
+        if 'analysis' in results:
+            save_report(results['analysis'], output_dir / 'analysis_report.json')
+        
+        # Save validation report
+        if 'validation' in results:
+            save_report(results['validation'], output_dir / 'validation_report.json')
+        
+        logging.info(f"Results saved to {output_dir}")
     except Exception as e:
-        emergency_log(f"Validation report save failed: {str(e)}")
-        safe_print(f"ERROR: Failed to save validation report: {str(e)}")
-        return False
+        emergency_log(f"Failed to save results: {str(e)}")
+        raise
 
 def main():
-    """Main execution flow with robust error handling"""
+    """Main execution flow with comprehensive error handling"""
     try:
         args = parse_args()
         setup_logging(args.verbose)
         
         try:
+            # Load configuration
             config = load_config(args.config)
             
-            if args.match_threshold:
-                config.analysis.default_match_threshold = args.match_threshold
-            if args.show_top:
-                config.analysis.default_show_top = args.show_top
-            if args.verbose:
-                config.output.verbose = True
-
+            # Initialize components
             data_handler = DataHandler(config)
-            data_handler.prepare_filesystem()
             data_handler.load_data()
             
             analyzer = LotteryAnalyzer(data_handler.historical, config)
             generator = NumberSetGenerator(analyzer)
             validator = LotteryValidator(data_handler, generator, config)
-
-            number_sets = generator.generate_sets()
             
-            if args.analyze_latest:
-                if data_handler.latest_draw is not None:
-                    validator.analyze_latest_draw()
-                else:
-                    logging.warning("No latest draw available for analysis")
+            results = {}
             
-            if args.stats:
-                analyzer.generate_statistics_report()
-            
-            if args.validate_saved:
-                validator.validate_saved_sets(args.validate_saved)
-            elif args.mode != 'none':
-                validation_results = validator.validate_against_historical(number_sets)
-                if config.output.verbose:
-                    print_validation_results(validation_results)
+            # Perform requested operations
+            if args.mode in ['analyze', 'all']:
+                results['analysis'] = analyze_data(analyzer, args.draws)
                 
-                if config.validation.save_report:
-                    report_data = {
-                        'historical': validation_results,
-                        'sets': number_sets
-                    }
-                    if not save_validation_report(report_data, config):
-                        logging.error("Failed to save validation report")
-
-            if not save_results(number_sets, config.data.results_dir):
-                logging.warning("Failed to save some results")
-
+                # Display key findings
+                print("\nANALYSIS RESULTS:")
+                print(f"Most frequent numbers: {results['analysis'].hot_numbers}")
+                print(f"Least frequent numbers: {results['analysis'].cold_numbers}")
+            
+            if args.mode in ['generate', 'all']:
+                results['generated_sets'] = generate_numbers(
+                    generator, 
+                    args.sets, 
+                    args.strategy
+                )
+                
+                # Display generated sets
+                print("\nGENERATED NUMBER SETS:")
+                for i, (numbers, strategy) in enumerate(results['generated_sets'], 1):
+                    print(f"Set {i}: {numbers} ({strategy})")
+            
+            if args.mode in ['validate', 'all'] and 'generated_sets' in results:
+                results['validation'] = validate_numbers(validator, results['generated_sets'])
+                
+                # Display validation summary
+                print("\nVALIDATION RESULTS:")
+                print(f"Tested against {len(data_handler.historical)} historical draws")
+                print("Match distribution:")
+                for matches, count in sorted(results['validation'].match_counts.items()):
+                    print(f"{matches} matches: {count}")
+            
+            # Save all results
+            output_dir = Path(args.output or config.data.output_dir or 'results')
+            save_results(results, output_dir)
+            
         except Exception as e:
             try:
-                logging.critical(f"Runtime error: {str(e)}", exc_info=True)
+                logging.critical(f"Runtime error: {str(e)}", exc_info=args.verbose)
             except:
                 emergency_log(f"Runtime error (logging failed): {str(e)}")
             raise
