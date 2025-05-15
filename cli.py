@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 import sys
 import os
+import json
 import argparse
 from pathlib import Path
 import yaml
-from typing import List, Tuple
+from typing import List, Tuple, Any, Dict
 from collections import Counter
 
 # Emergency logging system
 CRASH_LOG = Path('lottery_crash.log')
+SUCCESS_LOG = Path('lottery_optimizer.log')
 
 def emergency_log(error: str):
     """Atomic error logging that cannot fail"""
@@ -16,7 +18,6 @@ def emergency_log(error: str):
         with open(CRASH_LOG, 'a') as f:
             f.write(f"{os.getpid()}: {error}\n")
     except:
-        # Absolute last resort
         os.write(2, f"CRASH LOG FAILED: {error}\n".encode())
 
 def safe_print(*args, **kwargs):
@@ -26,6 +27,19 @@ def safe_print(*args, **kwargs):
         sys.stderr.flush()
     except:
         emergency_log("Print failed: " + " ".join(str(a) for a in args))
+
+def convert_for_json(obj: Any) -> Any:
+    """Recursively convert objects to JSON-serializable types"""
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    elif isinstance(obj, dict):
+        return {k: convert_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_for_json(item) for item in obj]
+    elif hasattr(obj, '__dict__'):
+        return convert_for_json(obj.__dict__)
+    else:
+        return str(obj)
 
 # Safe imports with fallback
 try:
@@ -49,7 +63,7 @@ def setup_logging(verbose=False):
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
-        file_handler = logging.FileHandler('lottery_optimizer.log')
+        file_handler = logging.FileHandler(SUCCESS_LOG)
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         
@@ -128,7 +142,18 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
         return True
     except Exception as e:
         emergency_log(f"Save failed: {str(e)}")
-        logging.error(f"Failed to save results: {str(e)}")
+        safe_print(f"ERROR: Failed to save results: {str(e)}")
+        return False
+
+def save_validation_report(data: Dict, file_path: str) -> bool:
+    """Safely save validation report with JSON serialization"""
+    try:
+        with open(file_path, 'w') as f:
+            json.dump(convert_for_json(data), f, indent=2)
+        return True
+    except Exception as e:
+        emergency_log(f"Validation report save failed: {str(e)}")
+        safe_print(f"ERROR: Failed to save validation report: {str(e)}")
         return False
 
 def main():
@@ -174,17 +199,22 @@ def main():
                     print_validation_results(validation_results)
                 
                 if config.validation.save_report:
-                    validator.save_validation_report({
+                    report_data = {
                         'historical': validation_results,
                         'sets': number_sets
-                    })
+                    }
+                    if not save_validation_report(report_data, 
+                                               Path(config.validation.report_path) / 'validation_report.json'):
+                        logging.error("Failed to save validation report")
 
             if not save_results(number_sets, config.data.results_dir):
                 logging.warning("Failed to save some results")
 
         except Exception as e:
-            logging.critical(f"Runtime error: {str(e)}", exc_info=True)
-            emergency_log(f"Runtime error: {str(e)}")
+            try:
+                logging.critical(f"Runtime error: {str(e)}", exc_info=True)
+            except:
+                emergency_log(f"Runtime error (logging failed): {str(e)}")
             raise
             
     except Exception as fatal_error:
