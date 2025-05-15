@@ -1,3 +1,4 @@
+import pandas as pd
 from typing import List, Tuple
 import numpy as np
 from models.config import LotteryConfig
