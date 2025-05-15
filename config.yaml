@@ -1,10 +1,12 @@
 data:
   # File paths
-  latest_path: "data/latest_draw.csv" 
-  historical_path: "data/historical.csv"  # Required (format: MM/DD/YY,N1-N2-N3-N4-N5-N6)
-  upcoming_path: " "      # Optional (same format as historical)
-  stats_dir: "stats/"                    # Directory for analysis files
-  results_dir: "results/"                # Directory for generated number sets
+data:
+  historical_path: "data/historical.csv"  # Main input file
+  latest_path: "data/latest_draw.csv"    # Optional current draw
+  upcoming_path: "data/upcoming.csv"     # Optional future draws
+  archive_dir: "data/archive/"           # Changed from archive_path to archive_dir
+  results_dir: "data/results/"
+  stats_dir: "data/stats/"
   
   # Upcoming draw handling
   merge_upcoming: true     # Whether to merge upcoming draws into historical data
