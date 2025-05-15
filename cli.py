@@ -152,7 +152,7 @@ def generate_numbers(generator: NumberSetGenerator, num_sets: int, strategy: str
         emergency_log(f"Generation failed: {str(e)}")
         raise
 
-def validate_numbers(validator: LotteryValidator, number_sets: List[Tuple[List[int], str]]]) -> ValidationResult:
+def validate_numbers(validator: LotteryValidator, number_sets: List[Tuple[List[int], str]]) -> ValidationResult:
     """Validate generated numbers against historical data"""
     try:
         logging.info("Validating number sets...")
@@ -184,6 +184,17 @@ def save_results(results: Dict, output_dir: Path):
         logging.info(f"Results saved to {output_dir}")
     except Exception as e:
         emergency_log(f"Failed to save results: {str(e)}")
+        raise
+
+def load_config(config_path: str) -> LotteryConfig:
+    """Load and validate configuration"""
+    try:
+        with open(config_path) as f:
+            config_data = yaml.safe_load(f)
+        return LotteryConfig(**config_data)
+    except Exception as e:
+        emergency_log(f"Config load failed: {str(e)}")
+        safe_print(f"ERROR: Failed to load config: {str(e)}")
         raise
 
 def main():
@@ -259,4 +270,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    main()  
