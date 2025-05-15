@@ -151,29 +151,29 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
         logging.error(f"Failed to save results: {str(e)}")
         return False
 
-def main():
-    """Main entry point with guaranteed error reporting"""
-    try:
-        args = parse_args()
-        setup_logging(args.verbose)
-        
+    def main():
+        """Main entry point with guaranteed error reporting"""
         try:
-            # [Rest of your main logic]
-        except Exception as e:
-            safe_print(f"\nERROR: {str(e)}\n")
-            write_crash_log(f"Runtime error: {str(e)}")
-            raise
+            args = parse_args()
+            setup_logging(args.verbose)
             
-    except Exception as fatal_error:
-        # Last-ditch effort to record failure
-        write_crash_log(f"Fatal: {str(fatal_error)}")
-        safe_print(f"""
-        {'!' * 60}
-        CRITICAL ERROR (Report saved to {CRASH_LOG})
-        {str(fatal_error)}
-        {'!' * 60}
-        """)
-        sys.exit(1)
+            try:
+                # [Rest of your main logic]
+            except Exception as e:
+                safe_print(f"\nERROR: {str(e)}\n")
+                write_crash_log(f"Runtime error: {str(e)}")
+                raise
+                
+        except Exception as fatal_error:
+            # Last-ditch effort to record failure
+            write_crash_log(f"Fatal: {str(fatal_error)}")
+            safe_print(f"""
+            {'!' * 60}
+            CRITICAL ERROR (Report saved to {CRASH_LOG})
+            {str(fatal_error)}
+            {'!' * 60}
+            """)
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
