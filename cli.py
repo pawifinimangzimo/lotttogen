@@ -1,9 +1,10 @@
 import argparse
 from pathlib import Path
 import yaml
-from typing import Optional
+from typing import Optional, List
 
 from models.config import LotteryConfig
+from models.results import ValidationResult  # <-- THIS IS CRUCIAL
 from core.data_handler import DataHandler
 from core.analyzer import LotteryAnalyzer
 from core.generator import NumberSetGenerator
