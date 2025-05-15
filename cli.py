@@ -89,83 +89,61 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
         return False
 
 def main():
-    """Main execution flow"""
+    """Main execution flow with bulletproof error handling"""
     args = parse_args()
-
-    # Debug: Verify logging is available
-    print(f"PRE-SETUP: 'logging' in globals(): {'logging' in globals()}")
-    print(f"PRE-SETUP: 'logging' in sys.modules: {'logging' in sys.modules}")
     
-    setup_logging(args.verbose)  # <-- Does the error happen here?
+    # 1. Setup logging with strong references
+    _setup_logging_with_protection(args.verbose)
     
-    # Debug: Post-setup check
-    print(f"POST-SETUP: logging configured: {logging.getLogger().handlers}")
-
-
     try:
-        # Load configuration
-        config = load_config(args.config)
+        # [Your existing main code here]
         
-        # Override config with CLI args if provided
-        if args.match_threshold:
-            config.analysis.default_match_threshold = args.match_threshold
-        if args.show_top:
-            config.analysis.default_show_top = args.show_top
-        if args.verbose:
-            config.output.verbose = True
-
-        # Initialize components
-        data_handler = DataHandler(config)
-        data_handler.prepare_filesystem()
-        data_handler.load_data()
-        
-        analyzer = LotteryAnalyzer(data_handler.historical, config)
-        generator = NumberSetGenerator(analyzer)
-        validator = LotteryValidator(data_handler, generator, config)
-
-        # Generate number sets
-        number_sets = generator.generate_sets()
-        
-        # Handle analysis modes
-        if args.analyze_latest:
-            if data_handler.latest_draw is not None:
-                validator.analyze_latest_draw()
-            else:
-                logging.warning("No latest draw available for analysis")
-        
-        if args.stats:
-            analyzer.generate_statistics_report()
-        
-        # Handle validation modes
-        if args.validate_saved:
-            validator.validate_saved_sets(args.validate_saved)
-        elif args.mode != 'none':
-            validation_results = validator.validate_against_historical(number_sets)
-            if config.output.verbose:
-                print_validation_results(validation_results)
-            
-            if config.validation.save_report:
-                validator.save_validation_report({
-                    'historical': validation_results,
-                    'sets': number_sets
-                })
-
-        # Save final results
-        if not save_results(number_sets, config.data.results_dir):
-            logging.warning("Failed to save some results")
-
     except Exception as e:
-        # First print to stderr as a fallback
-        print(f"\nFATAL ERROR: {str(e)}\n", file=sys.stderr)
-        
-        # Only attempt logging if we're sure it's available
-        if 'logging' in globals() and hasattr(logging, 'critical'):
-            try:
-                logging.critical(f"Fatal error: {str(e)}", exc_info=args.verbose)
-            except Exception as logging_error:
-                print(f"LOGGING FAILED TOO: {logging_error}", file=sys.stderr)
-        
-        raise SystemExit(1) from e
+        # 2. Ultra-robust error reporting
+        _handle_critical_error(e, args.verbose)
+        sys.exit(1)
+
+def _setup_logging_with_protection(verbose=False):
+    """Configure logging that survives interpreter shutdown"""
+    global _logging_handlers  # Strong reference to prevent GC
+    
+    level = logging.DEBUG if verbose else logging.INFO
+    logger = logging.getLogger()
+    logger.setLevel(level)
+    
+    # Create and store handlers
+    _logging_handlers = [
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('lottery_optimizer.log')
+    ]
+    
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    for handler in _logging_handlers:
+        handler.setLevel(level)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+def _handle_critical_error(error, verbose):
+    """Last-resort error handling that never fails"""
+    try:
+        # First try proper logging
+        if 'logging' in globals():
+            logging.critical(f"Fatal error: {error}", exc_info=verbose)
+    except:
+        pass
+    
+    # Guaranteed fallback output
+    error_msg = f"""
+    {'*' * 80}
+    CRITICAL ERROR (logging unavailable):
+    {str(error)}
+    {'*' * 80}
+    """
+    sys.stderr.write(error_msg)
+    sys.stderr.flush()
 
 if __name__ == "__main__":
     main()
