@@ -88,62 +88,62 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
         logging.error(f"Failed to save results: {str(e)}")
         return False
 
-def main():
-    """Main execution flow with bulletproof error handling"""
-    args = parse_args()
-    
-    # 1. Setup logging with strong references
-    _setup_logging_with_protection(args.verbose)
-    
-    try:
-        # [Your existing main code here]
+    def main():
+        """Main execution flow with bulletproof error handling"""
+        args = parse_args()
         
-    except Exception as e:
-        # 2. Ultra-robust error reporting
-        _handle_critical_error(e, args.verbose)
-        sys.exit(1)
+        # 1. Setup logging with strong references
+        _setup_logging_with_protection(args.verbose)
+        
+        try:
+            # [Your existing main code here]
+            
+        except Exception as e:
+            # 2. Ultra-robust error reporting
+            _handle_critical_error(e, args.verbose)
+            sys.exit(1)
 
-def _setup_logging_with_protection(verbose=False):
-    """Configure logging that survives interpreter shutdown"""
-    global _logging_handlers  # Strong reference to prevent GC
-    
-    level = logging.DEBUG if verbose else logging.INFO
-    logger = logging.getLogger()
-    logger.setLevel(level)
-    
-    # Create and store handlers
-    _logging_handlers = [
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('lottery_optimizer.log')
-    ]
-    
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    for handler in _logging_handlers:
-        handler.setLevel(level)
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+    def _setup_logging_with_protection(verbose=False):
+        """Configure logging that survives interpreter shutdown"""
+        global _logging_handlers  # Strong reference to prevent GC
+        
+        level = logging.DEBUG if verbose else logging.INFO
+        logger = logging.getLogger()
+        logger.setLevel(level)
+        
+        # Create and store handlers
+        _logging_handlers = [
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler('lottery_optimizer.log')
+        ]
+        
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        
+        for handler in _logging_handlers:
+            handler.setLevel(level)
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
 
-def _handle_critical_error(error, verbose):
-    """Last-resort error handling that never fails"""
-    try:
-        # First try proper logging
-        if 'logging' in globals():
-            logging.critical(f"Fatal error: {error}", exc_info=verbose)
-    except:
-        pass
-    
-    # Guaranteed fallback output
-    error_msg = f"""
-    {'*' * 80}
-    CRITICAL ERROR (logging unavailable):
-    {str(error)}
-    {'*' * 80}
-    """
-    sys.stderr.write(error_msg)
-    sys.stderr.flush()
+    def _handle_critical_error(error, verbose):
+        """Last-resort error handling that never fails"""
+        try:
+            # First try proper logging
+            if 'logging' in globals():
+                logging.critical(f"Fatal error: {error}", exc_info=verbose)
+        except:
+            pass
+        
+        # Guaranteed fallback output
+        error_msg = f"""
+        {'*' * 80}
+        CRITICAL ERROR (logging unavailable):
+        {str(error)}
+        {'*' * 80}
+        """
+        sys.stderr.write(error_msg)
+        sys.stderr.flush()
 
 if __name__ == "__main__":
     main()
