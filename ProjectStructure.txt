@@ -1,0 +1,31 @@
+lottery-optimizer/
+├── config/
+│   ├── __init__.py
+│   ├── defaults.py
+│   └── schemas.py
+├── core/
+│   ├── __init__.py
+│   ├── analyzer.py
+│   ├── generator.py
+│   ├── validator.py
+│   └── data_handler.py
+├── data/
+│   ├── archive/
+│   ├── results/
+│   └── stats/
+├── models/
+│   ├── __init__.py
+│   ├── config.py
+│   └── results.py
+├── tests/
+│   ├── __init__.py
+│   ├── test_analyzer.py
+│   ├── test_generator.py
+│   └── test_validator.py
+├── utils/
+│   ├── __init__.py
+│   ├── logger.py
+│   └── helpers.py
+├── cli.py
+├── config.yaml
+└── requirements.txt
