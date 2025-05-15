@@ -91,7 +91,16 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
 def main():
     """Main execution flow"""
     args = parse_args()
-    setup_logging(args.verbose)
+
+    # Debug: Verify logging is available
+    print(f"PRE-SETUP: 'logging' in globals(): {'logging' in globals()}")
+    print(f"PRE-SETUP: 'logging' in sys.modules: {'logging' in sys.modules}")
+    
+    setup_logging(args.verbose)  # <-- Does the error happen here?
+    
+    # Debug: Post-setup check
+    print(f"POST-SETUP: logging configured: {logging.getLogger().handlers}")
+
 
     try:
         # Load configuration
