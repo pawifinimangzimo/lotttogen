@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 import sys
 import os
-from pathlib import Path
 import argparse
+from pathlib import Path
 import yaml
 from typing import List, Tuple
 from collections import Counter
 
-# Constants
+# Emergency logging system
 CRASH_LOG = Path('lottery_crash.log')
-SUCCESS_LOG = Path('lottery_optimizer.log')
 
-def write_crash_log(error: str):
+def emergency_log(error: str):
     """Atomic error logging that cannot fail"""
     try:
         with open(CRASH_LOG, 'a') as f:
@@ -21,13 +20,14 @@ def write_crash_log(error: str):
         os.write(2, f"CRASH LOG FAILED: {error}\n".encode())
 
 def safe_print(*args, **kwargs):
-    """Print that can't fail during interpreter shutdown"""
+    """Print that works during interpreter shutdown"""
     try:
-        print(*args, **kwargs)
+        print(*args, **kwargs, file=sys.stderr)
+        sys.stderr.flush()
     except:
-        write_crash_log("Print failed: " + " ".join(str(a) for a in args))
+        emergency_log("Print failed: " + " ".join(str(a) for a in args))
 
-# Now safely import other modules
+# Safe imports with fallback
 try:
     import logging
     from models.config import LotteryConfig
@@ -37,59 +37,34 @@ try:
     from core.generator import NumberSetGenerator
     from core.validator import LotteryValidator
 except Exception as e:
-    write_crash_log(f"Import failed: {str(e)}")
+    emergency_log(f"Import failed: {str(e)}")
     safe_print("FATAL: Module import failed - see", CRASH_LOG)
     sys.exit(1)
 
 def setup_logging(verbose=False):
-    """Configure logging with isolated file handler"""
+    """Configure logging system with crash protection"""
     try:
         level = logging.DEBUG if verbose else logging.INFO
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
-        # File handler (separate from crash log)
-        file_handler = logging.FileHandler(SUCCESS_LOG)
+        file_handler = logging.FileHandler('lottery_optimizer.log')
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         
-        # Stream handler
         stream_handler = logging.StreamHandler(sys.stdout)
         stream_handler.setLevel(level)
         stream_handler.setFormatter(formatter)
         
-        # Configure root logger
         logger = logging.getLogger()
         logger.setLevel(level)
         logger.addHandler(file_handler)
         logger.addHandler(stream_handler)
         
     except Exception as e:
-        write_crash_log(f"Logging setup failed: {str(e)}")
+        emergency_log(f"Logging setup failed: {str(e)}")
         safe_print("WARNING: Logging partially failed - see", CRASH_LOG)
-
-
-
-def _handle_critical_error(error, verbose=False):
-    """Last-resort error handling that never fails"""
-    error_msg = f"""
-    {'*' * 80}
-    CRITICAL ERROR: {str(error)}
-    {'*' * 80}
-    """
-    
-    # Try normal logging first
-    try:
-        if 'logging' in globals():
-            logging.critical(error_msg, exc_info=verbose)
-            return
-    except Exception:
-        pass
-    
-    # Fallback to direct stderr writing
-    sys.stderr.write(error_msg)
-    sys.stderr.flush()
 
 def parse_args():
     """Parse command line arguments"""
@@ -122,20 +97,24 @@ def load_config(config_path: str) -> LotteryConfig:
             config_data = yaml.safe_load(f)
         return LotteryConfig(**config_data)
     except Exception as e:
-        _handle_critical_error(f"Failed to load config: {str(e)}")
+        emergency_log(f"Config load failed: {str(e)}")
+        safe_print(f"ERROR: Failed to load config: {str(e)}")
         raise
 
 def print_validation_results(results: ValidationResult) -> None:
-    """Display validation results in readable format"""
-    print("\nVALIDATION RESULTS:")
-    print(f"Tested against {results.draws_tested} historical draws")
-    print("Match distribution:")
-    for i in range(7):
-        print(f"{i} matches: {results.match_counts.get(i, 0)} "
-              f"({results.match_percentages.get(f'{i}_matches', '0%')})")
-    
-    if results.best_per_draw:
-        print(f"\nBest match per draw: {Counter(results.best_per_draw)}")
+    """Display validation results"""
+    try:
+        print("\nVALIDATION RESULTS:")
+        print(f"Tested against {results.draws_tested} historical draws")
+        print("Match distribution:")
+        for i in range(7):
+            print(f"{i} matches: {results.match_counts.get(i, 0)} "
+                  f"({results.match_percentages.get(f'{i}_matches', '0%')})")
+        
+        if results.best_per_draw:
+            print(f"\nBest match per draw: {Counter(results.best_per_draw)}")
+    except Exception as e:
+        emergency_log(f"Results print failed: {str(e)}")
 
 def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
     """Save generated number sets to CSV"""
@@ -148,32 +127,75 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
         logging.info(f"Saved results to {output_path}")
         return True
     except Exception as e:
+        emergency_log(f"Save failed: {str(e)}")
         logging.error(f"Failed to save results: {str(e)}")
         return False
 
-    def main():
-        """Main entry point with guaranteed error reporting"""
+def main():
+    """Main execution flow with robust error handling"""
+    try:
+        args = parse_args()
+        setup_logging(args.verbose)
+        
         try:
-            args = parse_args()
-            setup_logging(args.verbose)
+            config = load_config(args.config)
             
-            try:
-                # [Rest of your main logic]
-            except Exception as e:
-                safe_print(f"\nERROR: {str(e)}\n")
-                write_crash_log(f"Runtime error: {str(e)}")
-                raise
+            if args.match_threshold:
+                config.analysis.default_match_threshold = args.match_threshold
+            if args.show_top:
+                config.analysis.default_show_top = args.show_top
+            if args.verbose:
+                config.output.verbose = True
+
+            data_handler = DataHandler(config)
+            data_handler.prepare_filesystem()
+            data_handler.load_data()
+            
+            analyzer = LotteryAnalyzer(data_handler.historical, config)
+            generator = NumberSetGenerator(analyzer)
+            validator = LotteryValidator(data_handler, generator, config)
+
+            number_sets = generator.generate_sets()
+            
+            if args.analyze_latest:
+                if data_handler.latest_draw is not None:
+                    validator.analyze_latest_draw()
+                else:
+                    logging.warning("No latest draw available for analysis")
+            
+            if args.stats:
+                analyzer.generate_statistics_report()
+            
+            if args.validate_saved:
+                validator.validate_saved_sets(args.validate_saved)
+            elif args.mode != 'none':
+                validation_results = validator.validate_against_historical(number_sets)
+                if config.output.verbose:
+                    print_validation_results(validation_results)
                 
-        except Exception as fatal_error:
-            # Last-ditch effort to record failure
-            write_crash_log(f"Fatal: {str(fatal_error)}")
-            safe_print(f"""
-            {'!' * 60}
-            CRITICAL ERROR (Report saved to {CRASH_LOG})
-            {str(fatal_error)}
-            {'!' * 60}
-            """)
-            sys.exit(1)
+                if config.validation.save_report:
+                    validator.save_validation_report({
+                        'historical': validation_results,
+                        'sets': number_sets
+                    })
+
+            if not save_results(number_sets, config.data.results_dir):
+                logging.warning("Failed to save some results")
+
+        except Exception as e:
+            logging.critical(f"Runtime error: {str(e)}", exc_info=True)
+            emergency_log(f"Runtime error: {str(e)}")
+            raise
+            
+    except Exception as fatal_error:
+        emergency_log(f"Fatal: {str(fatal_error)}")
+        safe_print(f"""
+        {'!' * 60}
+        CRITICAL ERROR (Report saved to {CRASH_LOG})
+        {str(fatal_error)}
+        {'!' * 60}
+        """)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
