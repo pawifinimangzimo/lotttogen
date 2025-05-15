@@ -5,6 +5,7 @@ import json
 from tabulate import tabulate
 from models.config import LotteryConfig
 from models.results import ValidationResult
+from utils.helpers import convert_numpy_types
 
 class LotteryValidator:
     def __init__(self, data_handler, generator, config: LotteryConfig):
@@ -65,15 +66,14 @@ class LotteryValidator:
 
         return results
 
-    def save_validation_report(self, results: Dict, filename: str = 'validation_report.json') -> bool:
-        """Save validation results to JSON file"""
+    def save_validation_report(self, results):
         try:
-            report_path = Path(self.config.data.stats_dir) / filename
+            report_path = Path(self.config.data.stats_dir) / 'validation_report.json'
             with open(report_path, 'w') as f:
-                json.dump(self._convert_results(results), f, indent=2)
+                json.dump(convert_numpy_types(results), f, indent=2)
             return True
         except Exception as e:
-            print(f"Error saving validation report: {str(e)}")
+            logging.error(f"Error saving validation report: {str(e)}")
             return False
 
     def _convert_results(self, results):
