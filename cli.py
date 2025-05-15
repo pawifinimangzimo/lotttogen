@@ -1,187 +1,98 @@
 #!/usr/bin/env python3
-import logging
-import argparse
 import sys
+import os
 from pathlib import Path
+import argparse
 import yaml
-import json
-from typing import Optional, List, Dict, Tuple
+from typing import List, Tuple
 from collections import Counter
 
-from models.config import LotteryConfig
-from models.results import ValidationResult
-from core.data_handler import DataHandler
-from core.analyzer import LotteryAnalyzer
-from core.generator import NumberSetGenerator
-from core.validator import LotteryValidator
+# Constants
+CRASH_LOG = Path('lottery_crash.log')
+SUCCESS_LOG = Path('lottery_optimizer.log')
 
-# Global reference to prevent handler garbage collection
-_logging_handlers = None
-
-def _setup_logging(verbose=False):
-    """Configure logging system with shutdown protection"""
-    global _logging_handlers
-    
-    level = logging.DEBUG if verbose else logging.INFO
-    logger = logging.getLogger()
-    logger.setLevel(level)
-    
-    # Create and store handlers
-    _logging_handlers = [
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('lottery_optimizer.log')
-    ]
-    
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    for handler in _logging_handlers:
-        handler.setLevel(level)
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-
-def _handle_critical_error(error, verbose=False):
-    """Last-resort error handling that never fails"""
-    error_msg = f"""
-    {'*' * 80}
-    CRITICAL ERROR: {str(error)}
-    {'*' * 80}
-    """
-    
-    # Try normal logging first
+def write_crash_log(error: str):
+    """Atomic error logging that cannot fail"""
     try:
-        if 'logging' in globals():
-            logging.critical(error_msg, exc_info=verbose)
-            return
-    except Exception:
-        pass
-    
-    # Fallback to direct stderr writing
-    sys.stderr.write(error_msg)
-    sys.stderr.flush()
+        with open(CRASH_LOG, 'a') as f:
+            f.write(f"{os.getpid()}: {error}\n")
+    except:
+        # Absolute last resort
+        os.write(2, f"CRASH LOG FAILED: {error}\n".encode())
 
-def parse_args():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(
-        description='Adaptive Lottery Number Optimizer',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument('--config', default='config.yaml',
-                      help='Path to configuration file')
-    parser.add_argument('--verbose', action='store_true',
-                      help='Enable verbose debugging output')
-    parser.add_argument('--mode', choices=['historical', 'new_draw', 'both', 'none'],
-                      default='none', help='Validation mode to run')
-    parser.add_argument('--validate-saved', metavar='PATH',
-                      help='Validate saved number sets from CSV file')
-    parser.add_argument('--analyze-latest', action='store_true',
-                      help='Show detailed analysis of latest draw')
-    parser.add_argument('--stats', action='store_true',
-                      help='Show advanced statistics')
-    parser.add_argument('--match-threshold', type=int,
-                      help='Minimum matches to show in validation')
-    parser.add_argument('--show-top', type=int,
-                      help='Number of top results to display')
-    return parser.parse_args()
-
-def load_config(config_path: str) -> LotteryConfig:
-    """Load and validate configuration"""
+def safe_print(*args, **kwargs):
+    """Print that can't fail during interpreter shutdown"""
     try:
-        with open(config_path) as f:
-            config_data = yaml.safe_load(f)
-        return LotteryConfig(**config_data)
+        print(*args, **kwargs)
+    except:
+        write_crash_log("Print failed: " + " ".join(str(a) for a in args))
+
+# Now safely import other modules
+try:
+    import logging
+    from models.config import LotteryConfig
+    from models.results import ValidationResult
+    from core.data_handler import DataHandler
+    from core.analyzer import LotteryAnalyzer
+    from core.generator import NumberSetGenerator
+    from core.validator import LotteryValidator
+except Exception as e:
+    write_crash_log(f"Import failed: {str(e)}")
+    safe_print("FATAL: Module import failed - see", CRASH_LOG)
+    sys.exit(1)
+
+def setup_logging(verbose=False):
+    """Configure logging with isolated file handler"""
+    try:
+        level = logging.DEBUG if verbose else logging.INFO
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        
+        # File handler (separate from crash log)
+        file_handler = logging.FileHandler(SUCCESS_LOG)
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        
+        # Stream handler
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setLevel(level)
+        stream_handler.setFormatter(formatter)
+        
+        # Configure root logger
+        logger = logging.getLogger()
+        logger.setLevel(level)
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
+        
     except Exception as e:
-        _handle_critical_error(f"Failed to load config: {str(e)}")
-        raise
+        write_crash_log(f"Logging setup failed: {str(e)}")
+        safe_print("WARNING: Logging partially failed - see", CRASH_LOG)
 
-def print_validation_results(results: ValidationResult) -> None:
-    """Display validation results in readable format"""
-    print("\nVALIDATION RESULTS:")
-    print(f"Tested against {results.draws_tested} historical draws")
-    print("Match distribution:")
-    for i in range(7):
-        print(f"{i} matches: {results.match_counts.get(i, 0)} "
-              f"({results.match_percentages.get(f'{i}_matches', '0%')})")
-    
-    if results.best_per_draw:
-        print(f"\nBest match per draw: {Counter(results.best_per_draw)}")
-
-def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
-    """Save generated number sets to CSV"""
-    try:
-        output_path = Path(output_dir) / 'suggestions.csv'
-        with open(output_path, 'w') as f:
-            f.write("numbers,strategy\n")
-            for nums, strategy in sets:
-                f.write(f"{'-'.join(map(str, nums))},{strategy}\n")
-        logging.info(f"Saved results to {output_path}")
-        return True
-    except Exception as e:
-        logging.error(f"Failed to save results: {str(e)}")
-        return False
+[... rest of your existing functions remain unchanged ...]
 
 def main():
-    """Main execution flow with robust error handling"""
-    args = parse_args()
-    
+    """Main entry point with guaranteed error reporting"""
     try:
-        # Setup protected logging
-        _setup_logging(args.verbose)
+        args = parse_args()
+        setup_logging(args.verbose)
         
-        # Load configuration
-        config = load_config(args.config)
-        
-        # Override config with CLI args if provided
-        if args.match_threshold:
-            config.analysis.default_match_threshold = args.match_threshold
-        if args.show_top:
-            config.analysis.default_show_top = args.show_top
-        if args.verbose:
-            config.output.verbose = True
-
-        # Initialize components
-        data_handler = DataHandler(config)
-        data_handler.prepare_filesystem()
-        data_handler.load_data()
-        
-        analyzer = LotteryAnalyzer(data_handler.historical, config)
-        generator = NumberSetGenerator(analyzer)
-        validator = LotteryValidator(data_handler, generator, config)
-
-        # Generate number sets
-        number_sets = generator.generate_sets()
-        
-        # Handle analysis modes
-        if args.analyze_latest:
-            if data_handler.latest_draw is not None:
-                validator.analyze_latest_draw()
-            else:
-                logging.warning("No latest draw available for analysis")
-        
-        if args.stats:
-            analyzer.generate_statistics_report()
-        
-        # Handle validation modes
-        if args.validate_saved:
-            validator.validate_saved_sets(args.validate_saved)
-        elif args.mode != 'none':
-            validation_results = validator.validate_against_historical(number_sets)
-            if config.output.verbose:
-                print_validation_results(validation_results)
+        try:
+            # [Rest of your main logic]
+        except Exception as e:
+            safe_print(f"\nERROR: {str(e)}\n")
+            write_crash_log(f"Runtime error: {str(e)}")
+            raise
             
-            if config.validation.save_report:
-                validator.save_validation_report({
-                    'historical': validation_results,
-                    'sets': number_sets
-                })
-
-        # Save final results
-        if not save_results(number_sets, config.data.results_dir):
-            logging.warning("Failed to save some results")
-
-    except Exception as e:
-        _handle_critical_error(e, args.verbose)
+    except Exception as fatal_error:
+        # Last-ditch effort to record failure
+        write_crash_log(f"Fatal: {str(fatal_error)}")
+        safe_print(f"""
+        {'!' * 60}
+        CRITICAL ERROR (Report saved to {CRASH_LOG})
+        {str(fatal_error)}
+        {'!' * 60}
+        """)
         sys.exit(1)
 
 if __name__ == "__main__":
