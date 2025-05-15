@@ -5,7 +5,7 @@ import json
 import argparse
 from pathlib import Path
 import yaml
-from typing import List, Tuple, Any, Dict
+from typing import List, Tuple, Any, Dict, Optional
 from collections import Counter
 
 # Emergency logging system
@@ -145,11 +145,31 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
         safe_print(f"ERROR: Failed to save results: {str(e)}")
         return False
 
-def save_validation_report(data: Dict, file_path: str) -> bool:
-    """Safely save validation report with JSON serialization"""
+def get_report_path(config) -> Path:
+    """Get validation report path with fallback defaults"""
     try:
-        with open(file_path, 'w') as f:
+        # Try to get from config
+        if hasattr(config.validation, 'report_path'):
+            return Path(config.validation.report_path)
+        # Fallback to results directory
+        if hasattr(config.data, 'results_dir'):
+            return Path(config.data.results_dir)
+    except Exception:
+        pass
+    # Ultimate fallback
+    return Path.cwd()
+
+def save_validation_report(data: Dict, config) -> bool:
+    """Safely save validation report with proper path handling"""
+    try:
+        report_dir = get_report_path(config)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / 'validation_report.json'
+        
+        with open(report_path, 'w') as f:
             json.dump(convert_for_json(data), f, indent=2)
+        
+        logging.info(f"Saved validation report to {report_path}")
         return True
     except Exception as e:
         emergency_log(f"Validation report save failed: {str(e)}")
@@ -203,8 +223,7 @@ def main():
                         'historical': validation_results,
                         'sets': number_sets
                     }
-                    if not save_validation_report(report_data, 
-                                               Path(config.validation.report_path) / 'validation_report.json'):
+                    if not save_validation_report(report_data, config):
                         logging.error("Failed to save validation report")
 
             if not save_results(number_sets, config.data.results_dir):
