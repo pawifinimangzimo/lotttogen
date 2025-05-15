@@ -155,8 +155,16 @@ def main():
             logging.warning("Failed to save some results")
 
     except Exception as e:
-        logging.critical(f"Fatal error: {str(e)}", exc_info=args.verbose)
-        print(f"DEBUG: globals() contains 'logging': {'logging' in globals()}")  # Debug line
+        # First print to stderr as a fallback
+        print(f"\nFATAL ERROR: {str(e)}\n", file=sys.stderr)
+        
+        # Only attempt logging if we're sure it's available
+        if 'logging' in globals() and hasattr(logging, 'critical'):
+            try:
+                logging.critical(f"Fatal error: {str(e)}", exc_info=args.verbose)
+            except Exception as logging_error:
+                print(f"LOGGING FAILED TOO: {logging_error}", file=sys.stderr)
+        
         raise SystemExit(1) from e
 
 if __name__ == "__main__":
