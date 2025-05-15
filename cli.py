@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import logging
+from logging import INFO, DEBUG, ERROR, CRITICAL
 import sys
 from pathlib import Path
 import yaml
