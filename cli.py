@@ -34,7 +34,7 @@ try:
     import logging
     import numpy as np
     from models.config import LotteryConfig
-    from models.results import ValidationResult  # Removed AnalysisResult import
+    from models.results import ValidationResult
     from core.data_handler import DataHandler
     from core.analyzer import LotteryAnalyzer
     from core.generator import NumberSetGenerator
@@ -104,6 +104,15 @@ def load_config(config_path: str) -> LotteryConfig:
         safe_print(f"ERROR: Failed to load config: {str(e)}")
         raise
 
+def validation_result_to_dict(result: ValidationResult) -> Dict:
+    """Convert ValidationResult to serializable dictionary"""
+    return {
+        'draws_tested': result.draws_tested,
+        'match_counts': dict(result.match_counts),
+        'match_percentages': dict(result.match_percentages),
+        'best_per_draw': list(result.best_per_draw) if result.best_per_draw else None
+    }
+
 def print_validation_results(results: ValidationResult) -> None:
     """Display validation results"""
     try:
@@ -147,6 +156,30 @@ def get_report_path(config) -> Path:
         pass
     # Final fallback to current directory
     return Path.cwd()
+
+def save_validation_report(validation_results: ValidationResult, 
+                         number_sets: List[Tuple[List[int], str]], 
+                         config) -> bool:
+    """Save validation report with proper serialization"""
+    try:
+        report_dir = get_report_path(config)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / 'validation_report.json'
+        
+        report_data = {
+            'historical': validation_result_to_dict(validation_results),
+            'sets': number_sets
+        }
+        
+        with open(report_path, 'w') as f:
+            json.dump(report_data, f, indent=2)
+            
+        logging.info(f"Saved validation report to {report_path}")
+        return True
+    except Exception as e:
+        emergency_log(f"Failed to save validation report: {str(e)}")
+        logging.error(f"Failed to save validation report: {str(e)}")
+        return False
 
 def main():
     """Main execution flow with robust error handling"""
@@ -198,18 +231,8 @@ def main():
                     print_validation_results(validation_results)
                 
                 if hasattr(config.validation, 'save_report') and config.validation.save_report:
-                    report_dir = get_report_path(config)
-                    report_dir.mkdir(parents=True, exist_ok=True)
-                    report_path = report_dir / 'validation_report.json'
-                    
-                    try:
-                        with open(report_path, 'w') as f:
-                            json.dump({
-                                'historical': validation_results.to_dict(),
-                                'sets': number_sets
-                            }, f, indent=2)
-                    except Exception as e:
-                        logging.error(f"Failed to save validation report: {str(e)}")
+                    if not save_validation_report(validation_results, number_sets, config):
+                        logging.warning("Failed to save validation report")
 
             # Save final results
             if not save_results(number_sets, config.data.results_dir):
