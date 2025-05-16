@@ -8,6 +8,7 @@ import yaml
 from typing import List, Tuple, Any, Dict, Optional
 from collections import Counter
 from datetime import datetime
+import numpy as np
 
 # Configure emergency logging first
 CRASH_LOG = Path('lottery_crash.log')
@@ -29,10 +30,22 @@ def safe_print(*args, **kwargs):
     except:
         emergency_log("Print failed: " + " ".join(str(a) for a in args))
 
+# Enhanced JSON encoder that handles all numpy types
+class EnhancedJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif hasattr(obj, '__dict__'):
+            return vars(obj)
+        return super().default(obj)
+
 # Safe imports with fallback
 try:
     import logging
-    import numpy as np
     from models.config import LotteryConfig
     from models.results import ValidationResult
     from core.data_handler import DataHandler
@@ -104,13 +117,13 @@ def load_config(config_path: str) -> LotteryConfig:
         safe_print(f"ERROR: Failed to load config: {str(e)}")
         raise
 
-def validation_result_to_dict(result: ValidationResult) -> Dict:
-    """Convert ValidationResult to serializable dictionary"""
+def serialize_validation_result(result: ValidationResult) -> Dict:
+    """Completely serialize validation results including numpy types"""
     return {
-        'draws_tested': result.draws_tested,
-        'match_counts': dict(result.match_counts),
-        'match_percentages': dict(result.match_percentages),
-        'best_per_draw': list(result.best_per_draw) if result.best_per_draw else None
+        'draws_tested': int(result.draws_tested),
+        'match_counts': {int(k): int(v) for k, v in result.match_counts.items()},
+        'match_percentages': {str(k): str(v) for k, v in result.match_percentages.items()},
+        'best_per_draw': [int(x) for x in result.best_per_draw] if result.best_per_draw else None
     }
 
 def print_validation_results(results: ValidationResult) -> None:
@@ -143,36 +156,22 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
         safe_print(f"ERROR: Failed to save results: {str(e)}")
         return False
 
-def get_report_path(config) -> Path:
-    """Safe path resolution for reports"""
-    try:
-        # Check for report_path in validation config
-        if hasattr(config.validation, 'report_path'):
-            return Path(config.validation.report_path)
-        # Fallback to results directory
-        if hasattr(config.data, 'results_dir'):
-            return Path(config.data.results_dir)
-    except Exception:
-        pass
-    # Final fallback to current directory
-    return Path.cwd()
-
 def save_validation_report(validation_results: ValidationResult, 
                          number_sets: List[Tuple[List[int], str]], 
                          config) -> bool:
-    """Save validation report with proper serialization"""
+    """Absolutely bulletproof report saving"""
     try:
-        report_dir = get_report_path(config)
+        report_dir = Path(config.data.results_dir) if hasattr(config.data, 'results_dir') else Path.cwd()
         report_dir.mkdir(parents=True, exist_ok=True)
         report_path = report_dir / 'validation_report.json'
         
         report_data = {
-            'historical': validation_result_to_dict(validation_results),
-            'sets': number_sets
+            'historical': serialize_validation_result(validation_results),
+            'sets': [[int(num) for num in nums] for nums, _ in number_sets]
         }
         
         with open(report_path, 'w') as f:
-            json.dump(report_data, f, indent=2)
+            json.dump(report_data, f, cls=EnhancedJSONEncoder, indent=2)
             
         logging.info(f"Saved validation report to {report_path}")
         return True
@@ -182,7 +181,7 @@ def save_validation_report(validation_results: ValidationResult,
         return False
 
 def main():
-    """Main execution flow with robust error handling"""
+    """Main execution flow with comprehensive error handling"""
     try:
         args = parse_args()
         setup_logging(args.verbose)
