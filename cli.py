@@ -5,23 +5,21 @@ import json
 import argparse
 from pathlib import Path
 import yaml
-from typing import List, Tuple, Any, Dict
-from collections import Counter
+from typing import List, Tuple
 from datetime import datetime
 import numpy as np
 
-# Configure emergency logging first - works without any imports
+# Emergency logging that cannot fail
 CRASH_LOG = Path('lottery_crash.log')
 
 def emergency_log(error: str):
-    """Atomic logging that cannot fail"""
     try:
         with open(CRASH_LOG, 'a') as f:
             f.write(f"{datetime.now()}: {error}\n")
     except:
         sys.stderr.write(f"EMERGENCY: {error}\n")
 
-# Safe imports with fallback
+# Safe imports
 try:
     import logging
     logging_available = True
@@ -38,14 +36,11 @@ try:
     from core.validator import LotteryValidator
 except Exception as e:
     emergency_log(f"Import failed: {str(e)}")
-    sys.stderr.write(f"FATAL: Import failed - see {CRASH_LOG}\n")
     sys.exit(1)
 
 def setup_logging(verbose=False):
-    """Robust logging setup"""
     if not logging_available:
         return
-    
     try:
         level = logging.DEBUG if verbose else logging.INFO
         logging.basicConfig(
@@ -60,7 +55,6 @@ def setup_logging(verbose=False):
         emergency_log(f"Logging setup failed: {str(e)}")
 
 def parse_args():
-    """Argument parsing with safe defaults"""
     parser = argparse.ArgumentParser(
         description='Lottery Number Generator',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -69,35 +63,43 @@ def parse_args():
     parser.add_argument('--verbose', action='store_true', help='Verbose output')
     parser.add_argument('--sets', type=int, help='Number of sets to generate')
     parser.add_argument('--mode', choices=['historical', 'none'], default='none')
-    parser.add_argument('--validate-saved', help='Validate saved sets')
-    parser.add_argument('--stats', action='store_true', help='Show statistics')
     return parser.parse_args()
 
 def load_config(config_path: str) -> LotteryConfig:
-    """Safe config loading"""
     try:
         with open(config_path) as f:
-            config_data = yaml.safe_load(f)
-            return LotteryConfig(**config_data)
+            return LotteryConfig(**yaml.safe_load(f))
     except Exception as e:
         emergency_log(f"Config load failed: {str(e)}")
         raise
 
 class SafeEncoder(json.JSONEncoder):
-    """Handles all numpy types and custom objects"""
     def default(self, obj):
-        if isinstance(obj, (np.integer, np.int64)):
+        if isinstance(obj, np.integer):
             return int(obj)
         if isinstance(obj, np.floating):
             return float(obj)
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        if hasattr(obj, '__dict__'):
-            return vars(obj)
         return super().default(obj)
 
+def generate_number_sets(generator, num_sets: int) -> List[Tuple[List[int], str]]:
+    """Universal set generation that works with both API versions"""
+    try:
+        # Try modern API first
+        if hasattr(generator, 'generate_sets'):
+            return generator.generate_sets(num_sets)
+        # Fallback to legacy API
+        elif hasattr(generator, 'generate_set'):
+            return [generator.generate_set() for _ in range(num_sets)]
+        else:
+            emergency_log("No valid generation method found")
+            return []
+    except Exception as e:
+        emergency_log(f"Generation failed: {str(e)}")
+        return []
+
 def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
-    """Guaranteed result saving"""
     try:
         output_path = Path(output_dir) / 'suggestions.csv'
         with open(output_path, 'w') as f:
@@ -105,14 +107,13 @@ def save_results(sets: List[Tuple[List[int], str]], output_dir: str) -> bool:
             for nums, strategy in sets:
                 f.write(f"{'-'.join(map(str, nums))},{strategy}\n")
         if logging_available:
-            logging.info(f"Saved {len(sets)} sets")
+            logging.info(f"Saved {len(sets)} sets to {output_path}")
         return True
     except Exception as e:
         emergency_log(f"Save failed: {str(e)}")
         return False
 
 def main():
-    """Main workflow with complete error handling"""
     args = parse_args()
     setup_logging(args.verbose)
     
@@ -127,35 +128,38 @@ def main():
         generator = NumberSetGenerator(analyzer)
         validator = LotteryValidator(data_handler, generator, config)
 
-        # Generate sets - handle both old and new generator APIs
-        num_sets = args.sets if args.sets else getattr(config.output, 'sets_to_generate', 5)
-        try:
-            number_sets = generator.generate_sets(num_sets)
-        except TypeError:
-            # Fallback for older generator API
-            number_sets = [generator.generate_set() for _ in range(num_sets)]
+        # Determine number of sets
+        num_sets = args.sets if args.sets is not None else getattr(config.output, 'sets_to_generate', 5)
+        
+        # Generate number sets
+        number_sets = generate_number_sets(generator, num_sets)
+        
+        if not number_sets:
+            emergency_log("No number sets generated")
+            sys.exit(1)
+            
+        if logging_available:
+            logging.info(f"Generated {len(number_sets)} number sets")
 
-        # Validation
+        # Validation if requested
         if args.mode == 'historical':
             try:
                 results = validator.validate_against_historical(number_sets)
                 if logging_available:
-                    logging.info(f"Validation complete: {results.match_counts}")
-            except AttributeError:
-                emergency_log("Validation not available in this version")
+                    logging.info(f"Validation results: {results.match_counts}")
+            except Exception as e:
+                emergency_log(f"Validation failed: {str(e)}")
 
         # Save results
         output_dir = getattr(config.data, 'results_dir', 'results')
         if not save_results(number_sets, output_dir):
-            emergency_log("Result saving failed")
-
-        if logging_available:
-            logging.info("Completed successfully")
+            emergency_log("Failed to save results")
+            sys.exit(1)
 
     except Exception as e:
         emergency_log(f"Fatal error: {str(e)}")
         if logging_available:
-            logging.critical(str(e), exc_info=args.verbose)
+            logging.critical(str(e), exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":
